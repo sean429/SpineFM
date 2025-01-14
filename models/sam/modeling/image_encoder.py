@@ -10,7 +10,6 @@ from typing import Optional, Tuple, Type
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
 
 from ...common import LayerNorm2d
 from ...ImageEncoder import AdapterBlock, Block, LoraBlock
