@@ -22,13 +22,13 @@ def main():
     root = os.path.join(os.getcwd(),'..')
     data_path = os.path.join(root,'data','NHANES2','Vertebrae')
 
-    train_loader = get_data_loader(dataset='ResNet_training',data_path=data_path,mode='Training',b=64)
+    train_loader = get_data_loader(dataset='ResNet_training',data_path=data_path,mode='Training',b=32)
     val_loader = get_data_loader(dataset='ResNet_training',data_path=data_path,mode='Validation',b=16)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load a pre-trained ResNet model
-    ResNet = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights)
+    ResNet = torchvision.models.resnet101(weights=torchvision.models.ResNet101_Weights)
 
     # Reconfigure the final layer for four class classification
     in_features = ResNet.fc.in_features
