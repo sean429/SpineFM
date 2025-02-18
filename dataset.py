@@ -219,47 +219,56 @@ class CSXA(torch.utils.data.Dataset):
         self.transforms = transforms
 
         # Load all image file names, sorting them to ensure correct matching with annotations
-        self.name_list = [line[0:7] for line in os.listdir(os.path.join(data_path,'imgs'))]
+        if mode == 'Training':
+            with open(os.path.join(self.data_path,'data_split','train.txt'),'r') as f:
+                self.name_list = [line[0:7] for line in f.readlines()][0:200]
+        elif mode == 'Validation':
+            with open(os.path.join(self.data_path,'data_split','val.txt'),'r') as f:
+                self.name_list = [line[0:7] for line in f.readlines()][0:200]
+        elif mode == 'Testing':
+            with open(os.path.join(self.data_path,'data_split','test.txt'),'r') as f:
+                self.name_list = [line[0:7] for line in f.readlines()][0:200]
 
     def __len__(self):
         return len(self.name_list)
 
     def __getitem__(self, idx):
         # Load images and annotations
-        img_path = os.path.join(self.data_path, 'imgs', self.name_list[idx]+'.png')
-        #gt_paths = [file for file in os.listdir(os.path.join(self.data_path, 'gts')) if file.split('_')[0] == self.name_list[idx]]
+        img_path = os.path.join(self.data_path, 'imgs', self.name_list[idx]+'.jpg')
+        gt_paths = [file for file in os.listdir(os.path.join(self.data_path, 'gts')) if file.split('_')[0] == self.name_list[idx]]
         img = Image.open(img_path).convert('RGB')
 
-        # # Extract bounding boxes, labels, and masks from the gts
-        # boxes = []
-        # labels = []
-        # masks = []
-        # centroids = []
+        # Extract bounding boxes, labels, and masks from the gts
+        boxes = []
+        labels = []
+        masks = []
+        centroids = []
 
-        # for gt_path in gt_paths:
-        #     gt = np.load(os.path.join(self.data_path,'gts',gt_path)).astype(np.uint8)
-        #     box = regionprops(gt)[0]['bbox']
-        #     c_y,c_x = regionprops(gt)[0]['centroid']
-        #     box = (box[1],box[0],box[3],box[2])
-        #     level = gt_path.split('_')[1].split('.')[0]
-        #     label = 1
+        for gt_path in gt_paths:
+            gt = np.load(os.path.join(self.data_path,'gts',gt_path))
+            gt = gt['arr_0'].astype(np.uint8)
+            box = regionprops(gt)[0]['bbox']
+            c_y,c_x = regionprops(gt)[0]['centroid']
+            box = (box[1],box[0],box[3],box[2])
+            level = gt_path.split('_')[1].split('.')[0]
+            label = 1
             
-        #     masks.append(gt)
-        #     labels.append(label)
-        #     boxes.append(box)
-        #     centroids.append((c_x,c_y))
+            masks.append(gt)
+            labels.append(label)
+            boxes.append(box)
+            centroids.append((c_x,c_y))
             
-        # # Convert to tensors
-        # boxes = torch.as_tensor(np.array(boxes), dtype=torch.int16)
-        # labels = torch.as_tensor(np.array(labels), dtype=torch.int64)
-        # masks = torch.as_tensor(np.array(masks), dtype=torch.uint8)
+        # Convert to tensors
+        boxes = torch.as_tensor(np.array(boxes), dtype=torch.int16)
+        labels = torch.as_tensor(np.array(labels), dtype=torch.int64)
+        masks = torch.as_tensor(np.array(masks), dtype=torch.uint8)
 
         # Target dictionary containing all the necessary components
         target = {}
-        # target['boxes'] = boxes
-        # target['labels'] = labels
-        # target['masks'] = masks
-        # target['centroids'] = centroids
+        target['boxes'] = boxes
+        target['labels'] = labels
+        target['masks'] = masks
+        target['centroids'] = centroids
         target['image_id'] = self.name_list[idx]
 
         if self.transforms:
