@@ -33,18 +33,9 @@ def get_model(name,device,weights_path='weights',num_classes=None,):
     elif name == 'Medical-SAM-Adaptor':
         
         encoder = 'default'
-        sam_checkpoint = os.path.join('..','SpineFM-2.0-CSXA','weights','sam_vit_b_01ec64.pth')
-
         weights_file = 'MSA_300b_CSXA.pth'
-
         msa_checkpoint = os.path.join(weights_path,weights_file)
-        net = sam_model_registry[encoder](sam_checkpoint)
-
-        '''load pretrained model'''
-        checkpoint = torch.load(msa_checkpoint, device)
-        new_state_dict = checkpoint['state_dict']
-
-        net.load_state_dict(new_state_dict)
+        net = sam_model_registry[encoder](msa_checkpoint)
         return net.to(device)
     
     elif name == 'Point_Predictor':

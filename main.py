@@ -218,7 +218,6 @@ def main():
 
                     # Background: Stop loop and discard mask
                     if label == 0:
-                        print('bg')
                         break
                     
                     # S1: Stop loop and save mask
