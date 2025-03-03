@@ -28,13 +28,15 @@ def main():
 
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-        # these should match the patch sizes used during training
+        # these should match the patch sizes and class numbers used during training
         if dataset == 'NHANESII':
             MSA_patch_size = 600
             Classifier_patch_size = 512
+            num_classes = 4
         elif dataset == 'CSXA':
             MSA_patch_size = 300
             Classifier_patch_size = 256
+            num_classes = 2
         else:
             sys.exit("Invalid dataset. Please choose either NHANESII or CSXA.")
 
@@ -159,7 +161,7 @@ def main():
 
         # Load a ResNet based model used for classifying new vertebra predictions (between background, regular vertebra, and 
         # landmark vertebra)
-        Classifier = get_model('ResNet_Classifier',device,weights_path,num_classes=2)
+        Classifier = get_model('ResNet_Classifier',device,weights_path,num_classes=num_classes)
         Classifier.eval()
 
         os.makedirs(os.path.join(data_path,output_directory),exist_ok=True)
@@ -241,8 +243,8 @@ def main():
                         # Replace the furthest point with the new vertebra's centroid
                         points = points[1:]+[new_point_refined]
             
-            # Post process by thresholding the masks then gaussian smoothing
-            #masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
+            # Post process by thresholding the masks then gaussian smoothing (mainly helpful for NHANES, not as important for CSXA)
+            masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
 
             # Save the masks
             np.savez_compressed(os.path.join(data_path,output_directory,'masks',id+'.npz'),masks=masks[id])
