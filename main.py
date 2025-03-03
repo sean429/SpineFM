@@ -11,25 +11,32 @@ def main():
 
     with torch.no_grad():
         
-        if len(sys.argv) != 4:
-            sys.exit("Usage: python main.py \"output_directory\" \"MSA_weights_file.pth\" MSA_patch_size \"dataset\" \"data_path\"")
+        if len(sys.argv) != 5:
+            sys.exit("Usage: python main.py \"output_directory\" \"weights_path\" \"dataset\" \"data_path\"")
         
         # name of output directory
         output_directory = sys.argv[1]
 
-        # MSA model weights file
-        MSA_weights_file = sys.argv[2]
-
-        # patch size which MSA was trained on
-        MSA_patch_size = int(sys.argv[3])
+        # path to model weights
+        weights_path = sys.argv[2]
 
         # dataset (NHANESII or CSXA)
-        dataset = sys.argv[4]
+        dataset = sys.argv[3]
 
         # data path
-        data_path = sys.argv[5]
+        data_path = sys.argv[4]
 
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+        # these should match the patch sizes used during training
+        if dataset == 'NHANESII':
+            MSA_patch_size = 600
+            Classifier_patch_size = 512
+        elif dataset == 'CSXA':
+            MSA_patch_size = 300
+            Classifier_patch_size = 256
+        else:
+            sys.exit("Invalid dataset. Please choose either NHANESII or CSXA.")
 
         # ------------------------------------------- PRELIMINARY MASK GENERATION --------------------------------------------
 
@@ -40,7 +47,7 @@ def main():
 
 
         # Load the Mask-RCNN model
-        Mask_RCNN = get_model('Mask-RCNN',device)
+        Mask_RCNN = get_model('Mask-RCNN',device,weights_path)
 
         # Get the data_loader
         data_loader = get_data_loader(dataset=dataset,data_path=data_path,mode='Testing',b=1)
@@ -61,6 +68,9 @@ def main():
             for i in range(len(outputs)):
                 masks_dict[ids[i]] = outputs[i]['masks'].cpu()
                 scores_dict[ids[i]] = outputs[i]['scores'].cpu()
+            
+            if len(masks_dict) > 5:
+                break
             
         del Mask_RCNN
 
@@ -115,7 +125,7 @@ def main():
         print("Setting up prediction loop. \n")
 
         # Load the Medical-SAM-Adaptor model
-        MSA = get_model('Medical-SAM-Adaptor',device,weights_file=MSA_weights_file)
+        MSA = get_model('Medical-SAM-Adaptor',device,weights_path)
         MSA.eval()
 
         refined_points = {}
@@ -145,11 +155,11 @@ def main():
         print("Generating masks... \n")
 
         # Load a simple fully connected NN which predicts the location of the centroid of the next vertebra
-        PointPredictor = get_model('Point_Predictor',device)
+        PointPredictor = get_model('Point_Predictor',device,weights_path)
 
         # Load a ResNet based model used for classifying new vertebra predictions (between background, regular vertebra, and 
         # landmark vertebra)
-        Classifier = get_model('ResNet_Classifier',device,num_classes=4)
+        Classifier = get_model('ResNet_Classifier',device,weights_path,num_classes=2)
         Classifier.eval()
 
         os.makedirs(os.path.join(data_path,output_directory),exist_ok=True)
@@ -202,10 +212,11 @@ def main():
                     new_point_refined = compute_weighted_centroid(np.array(torch.sigmoid(new_mask).squeeze(0)))
 
                     # Use the ResNet classifier to predict the label of the new region
-                    label = classify(Classifier,img,new_point_refined)
+                    label = classify(Classifier,img,new_point_refined,patch_size=Classifier_patch_size)
 
                     # Background: Stop loop and discard mask
                     if label == 0:
+                        print('bg')
                         break
                     
                     # S1: Stop loop and save mask
@@ -231,7 +242,7 @@ def main():
                         points = points[1:]+[new_point_refined]
             
             # Post process by thresholding the masks then gaussian smoothing
-            masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
+            #masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
 
             # Save the masks
             np.savez_compressed(os.path.join(data_path,output_directory,'masks',id+'.npz'),masks=masks[id])

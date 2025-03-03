@@ -12,7 +12,7 @@ from PIL import Image
 import cv2
 
 
-def get_model(name,device,num_classes=None,weights_file = None):
+def get_model(name,device,weights_path='weights',num_classes=None,):
 
     if name == 'Mask-RCNN':
         model = torchvision.models.detection.maskrcnn_resnet50_fpn()
@@ -26,23 +26,31 @@ def get_model(name,device,num_classes=None,weights_file = None):
         model.roi_heads.mask_predictor = torchvision.models.detection.mask_rcnn.MaskRCNNPredictor(in_features_mask,hidden_layer,num_classes)
 
         # Load the trained weights to the model
-        if weights_file == None:
-            weights_file = 'mask_rcnn_2_categories.pth'
-        model.load_state_dict(torch.load(os.path.join('weights',weights_file)))
+        model.load_state_dict(torch.load(os.path.join(weights_path,'mask_rcnn_csxa.pth')))
 
         return model.to(device)
     
     elif name == 'Medical-SAM-Adaptor':
         
         encoder = 'default'
-        msa_checkpoint = os.path.join('weights',weights_file)
-        net = sam_model_registry[encoder](msa_checkpoint)
+        sam_checkpoint = os.path.join('..','SpineFM-2.0-CSXA','weights','sam_vit_b_01ec64.pth')
+
+        weights_file = 'MSA_300b_CSXA.pth'
+
+        msa_checkpoint = os.path.join(weights_path,weights_file)
+        net = sam_model_registry[encoder](sam_checkpoint)
+
+        '''load pretrained model'''
+        checkpoint = torch.load(msa_checkpoint, device)
+        new_state_dict = checkpoint['state_dict']
+
+        net.load_state_dict(new_state_dict)
         return net.to(device)
     
     elif name == 'Point_Predictor':
 
         model = PointPredictor()
-        model.load_state_dict(torch.load(os.path.join('weights','point_predictor.pth')))
+        model.load_state_dict(torch.load(os.path.join(weights_path,'point_predictor.pth')))
 
         return model.to(device)
 
@@ -51,7 +59,7 @@ def get_model(name,device,num_classes=None,weights_file = None):
         model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights)
         in_features = model.fc.in_features
         model.fc = torch.nn.Linear(in_features,num_classes)
-        model.load_state_dict(torch.load(os.path.join('weights','resnet50_4_class_224px.pth')))
+        model.load_state_dict(torch.load(os.path.join(weights_path,'resnet50_2_class_224px_csxa.pth')))
 
         return model.to(device)
 
@@ -239,9 +247,9 @@ def random_click(mask):
     indices = np.argwhere(mask == 1) 
     return tuple(indices[np.random.randint(len(indices))])
 
-def classify(model,img,point,device=torch.device('cuda')):
+def classify(model,img,point,device=torch.device('cuda'),patch_size=512):
 
-    patch = generate_patch(img,point,512)
+    patch = generate_patch(img,point,patch_size)
     patch = torch.nn.functional.interpolate(patch.unsqueeze(0),(224,224)).to(device)
 
     output = model(patch)
