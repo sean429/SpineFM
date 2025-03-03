@@ -1,12 +1,4 @@
 # SpineFM: Leveraging Foundation Models for Automatic Spine X-ray Segmentation
-
-## Overview
-This repository contains the code and data associated with the paper:
-
-**"SpineFM: Leveraging Foundation Models for Automatic Spine X-ray Segmentation"**  
-*Authors: Samuel Simons and Bartłomiej W. Papież*  
-International Symposium of Biomedical Imaging, 2025
-
 https://arxiv.org/abs/2411.00326
 
 ## Abstract
@@ -19,9 +11,9 @@ This paper introduces SpineFM, a novel pipeline that achieves state-of-the-art p
   ```bash
   pip install -r requirements.txt
   ```
-### [Model Weights](weights/README.md)
+- [Model Weights](weights/README.md)
 
-### [Datasets](data/README.md)
+- [Datasets](data/README.md)
 
 ## Usage
 ### Running the Code
@@ -30,16 +22,14 @@ To reproduce the results from the paper, you should:
 - Download the corresponding model weights
 - Ensure that the utils.py get_model() function weight file names match with your own
 - Run the code:
-- 
+  
 ```bash
 python main.py "output_directory" "weights_path" "dataset*" "data_path"
 ```
-* either NHANES II or CSXA
-
-[Provide additional usage examples or explanations of important scripts.]
+ \*either NHANES II or CSXA
 
 ##  Model Training
-If you want to replicate this with a new dataset then I recommend getting in touch with me and I will try help. To start with some code is there for training the Mask R-CNN, ResNet and Point_Predictor models, although this hasn't been polished. For fine-tuning of the Medical-SAM-Adaptor see the original [repo](https://github.com/SuperMedIntel/Medical-SAM-Adapter?tab=readme-ov-file). I can provide extra details of the training process for this model if needed.
+If you want to replicate this with a new dataset then I recommend getting in touch with me and I will try help. To start with, some code is included for training the Mask R-CNN, ResNet and Point_Predictor models, although this hasn't been polished. For fine-tuning of the Medical-SAM-Adaptor see the original [repo](https://github.com/SuperMedIntel/Medical-SAM-Adapter?tab=readme-ov-file). I can provide extra details of the training process for this model if needed.
 
 ## Citation
 If you use this code in your research, please cite our paper:
