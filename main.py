@@ -10,22 +10,25 @@ from utils import *
 def main():
 
     with torch.no_grad():
-
+        
         if len(sys.argv) != 4:
-            sys.exit("Usage: python main.py \"output_directory\" \"MSA_weights_file.pth\" MSA_patch_size")
+            sys.exit("Usage: python main.py \"output_directory\" \"MSA_weights_file.pth\" MSA_patch_size \"dataset\" \"data_path\"")
         
         # name of output directory
         output_directory = sys.argv[1]
 
         # MSA model weights file
         MSA_weights_file = sys.argv[2]
-        print(MSA_weights_file)
 
-        # This is the patch size which MSA was trained on
+        # patch size which MSA was trained on
         MSA_patch_size = int(sys.argv[3])
 
-        home = os.getcwd()
-        data_path = os.path.join(home,'..','data','NHANES2','Vertebrae')
+        # dataset (NHANESII or CSXA)
+        dataset = sys.argv[4]
+
+        # data path
+        data_path = sys.argv[5]
+
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
         # ------------------------------------------- PRELIMINARY MASK GENERATION --------------------------------------------
@@ -33,16 +36,17 @@ def main():
         # This section runs the original images through a trained Mask-RCNN, generating candidate vertebrae masks as an 
         # output, along with their corresponding scores (i.e. the model's confidence) and the ground truth.
 
+        print("Generating preliminary masks. \n")
+
 
         # Load the Mask-RCNN model
         Mask_RCNN = get_model('Mask-RCNN',device)
 
         # Get the data_loader
-        data_loader = get_data_loader(dataset='NHANESII_Vertebrae',data_path=data_path,mode='Validation',b=1)
+        data_loader = get_data_loader(dataset=dataset,data_path=data_path,mode='Testing',b=1)
 
         masks_dict = {}
         scores_dict = {}
-        gt_centroids_dict = {}
 
         Mask_RCNN.eval()
         for images, targets in data_loader:
@@ -57,7 +61,6 @@ def main():
             for i in range(len(outputs)):
                 masks_dict[ids[i]] = outputs[i]['masks'].cpu()
                 scores_dict[ids[i]] = outputs[i]['scores'].cpu()
-                gt_centroids_dict[ids[i]] = targets[i]['centroids']
             
         del Mask_RCNN
 
@@ -70,6 +73,8 @@ def main():
         # -> locating the centroid of each vertebrae mask
         # -> sorting the centroids into their spacial order along the spine
         # -> chosing the three sequential centroids with the highest average score
+
+        print("Calculating vertebrae prompts. \n")
 
         top_three_dict = {}
         pred_centroids = {}
@@ -107,6 +112,7 @@ def main():
         # This section initialises the Medical-SAM-Adaptor model, as well as running the initial prompts through the model to 
         # refine the first known centroids.
 
+        print("Setting up prediction loop. \n")
 
         # Load the Medical-SAM-Adaptor model
         MSA = get_model('Medical-SAM-Adaptor',device,weights_file=MSA_weights_file)
@@ -136,6 +142,7 @@ def main():
         # next vertebra in the chain, and then testing to see if the mask generated indicates that a new vertebra has actually
         # been found. For more indication of the specifics read the code.
 
+        print("Generating masks... \n")
 
         # Load a simple fully connected NN which predicts the location of the centroid of the next vertebra
         PointPredictor = get_model('Point_Predictor',device)
@@ -145,21 +152,22 @@ def main():
         Classifier = get_model('ResNet_Classifier',device,num_classes=4)
         Classifier.eval()
 
-        new_points = []
-        new_points_refined = []
-
         os.makedirs(os.path.join(data_path,output_directory),exist_ok=True)
         os.makedirs(os.path.join(data_path,output_directory,'extras'),exist_ok=True)
         os.makedirs(os.path.join(data_path,output_directory,'masks'),exist_ok=True)
 
-        for id,p in refined_points.items():
-            print(id)
+        for n,(id,p) in enumerate(refined_points.items()):
+            
+            if n != 0 and n % 10 == 0:
+                print(n,'/',len(refined_points),'completed.')
             
             # Load the X-ray image corresoponding to id
             img = Image.open(os.path.join(data_path,'imgs',id+'.jpg')).convert('RGB')
             w,h = img.size
 
             landmark_centroid = (0,0)
+            new_points = []
+            new_points_refined = []
             extras = {}
 
             # By iterating over both the forward and reverse of points we can predict new vertebra both up and down the spine
@@ -188,7 +196,6 @@ def main():
                     iou = iou_from_logits(new_mask,masks[id][-1])
                     if iou > 0.1:
                         # If it is then do not save the new mask and stop the loop
-                        #print("Overlapping mask identified")
                         break
                     
                     # Calculate a more refined position of the new vertebra centroid
@@ -199,12 +206,10 @@ def main():
 
                     # Background: Stop loop and discard mask
                     if label == 0:
-                        #print("Background identified")
                         break
                     
                     # S1: Stop loop and save mask
                     elif label == 3:
-                        #print("Vertebrae S1 identified")
                         new_points_refined.append(new_point_refined)
                         landmark_centroid = new_point_refined
                         masks[id].append(new_mask)
@@ -212,7 +217,6 @@ def main():
                     
                     # C2: Stop loop and save mask
                     elif label == 2:
-                        #print("Vertebrae C2 identified")
                         new_points_refined.append(new_point_refined)
                         landmark_centroid = new_point_refined
                         masks[id].append(new_mask)
@@ -220,25 +224,31 @@ def main():
                     
                     # Regular vertebra: Continue loop and save mask
                     else:
-                        #print("Vertebrae identified")
                         new_points_refined.append(new_point_refined)
                         masks[id].append(new_mask)
 
                         # Replace the furthest point with the new vertebra's centroid
                         points = points[1:]+[new_point_refined]
             
-            masks[id] = torch.tensor(np.array(masks[id]),dtype=torch.float32)
-            torch.save(masks[id],os.path.join(data_path,output_directory,'masks',id+'.pt'))
+            # Post process by thresholding the masks then gaussian smoothing
+            masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
 
+            # Save the masks
+            np.savez_compressed(os.path.join(data_path,output_directory,'masks',id+'.npz'),masks=masks[id])
+
+            # Save additional information
             with open(os.path.join(data_path,output_directory,'extras',id+'.pkl'),'wb') as f:
 
                 # Save extra data which could be useful
                 extras['landmark_centroid'] = landmark_centroid
                 extras['rough_points'] = new_points
                 extras['refined_points'] = new_points_refined
-                extras['starting_points'] = refined_points
+                extras['starting_points'] = top_three_dict[id]
+                extras['refined_starting_points'] = refined_points[id]
 
                 pickle.dump(extras,f)
+
+    print("\nDone!\n")
 
 if __name__ == '__main__':
     main()

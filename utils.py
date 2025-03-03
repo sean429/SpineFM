@@ -9,6 +9,7 @@ from models.sam import sam_model_registry
 from models.PointPredictor.point_predictor import PointPredictor
 import math
 from PIL import Image
+import cv2
 
 
 def get_model(name,device,num_classes=None,weights_file = None):
@@ -16,7 +17,7 @@ def get_model(name,device,num_classes=None,weights_file = None):
     if name == 'Mask-RCNN':
         model = torchvision.models.detection.maskrcnn_resnet50_fpn()
 
-        # Update the model for 3 vertebrae classes + background class
+        # Update the model for vertebra class + background class
         num_classes = 2
         in_features = model.roi_heads.box_predictor.cls_score.in_features
         model.roi_heads.box_predictor = torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, num_classes)
@@ -34,34 +35,14 @@ def get_model(name,device,num_classes=None,weights_file = None):
     elif name == 'Medical-SAM-Adaptor':
         
         encoder = 'default'
-        sam_checkpoint = os.path.join('weights','sam_vit_b_01ec64.pth')
-
-        if weights_file == None:
-            weights_file == 'best_dice_checkpoint.pth'
-
         msa_checkpoint = os.path.join('weights',weights_file)
-        net = sam_model_registry[encoder](sam_checkpoint)
-
-        '''load pretrained model'''
-        checkpoint = torch.load(msa_checkpoint, device)
-        new_state_dict = checkpoint['state_dict']
-
-        net.load_state_dict(new_state_dict)
+        net = sam_model_registry[encoder](msa_checkpoint)
         return net.to(device)
     
     elif name == 'Point_Predictor':
 
         model = PointPredictor()
         model.load_state_dict(torch.load(os.path.join('weights','point_predictor.pth')))
-
-        return model.to(device)
-
-    elif name == 'Point_Predictor_v2':
-
-        model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights)
-        in_features = model.fc.in_features
-        model.fc = torch.nn.Linear(in_features,2)
-        model.load_state_dict(torch.load(os.path.join('weights','point_predictor_v2.pth')))
 
         return model.to(device)
 
@@ -269,3 +250,11 @@ def classify(model,img,point,device=torch.device('cuda')):
 
     return label
 
+def binary_mask_from_logits(mask,threshold):
+    output = (torch.sigmoid(mask) > threshold).to(torch.uint8)
+    return np.array(output[0,:,:])
+
+def gaussian_smooth(mask):
+    smoothed_mask = cv2.GaussianBlur(mask, (15,15), sigmaX=20)
+    _, final_mask = cv2.threshold(smoothed_mask, 0.5, 1, cv2.THRESH_BINARY)
+    return final_mask
