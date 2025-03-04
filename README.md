@@ -1,5 +1,5 @@
 # SpineFM: Leveraging Foundation Models for Automatic Spine X-ray Segmentation
-![Illustration of SpineFM pipeline](./media/pipeline.png)
+![Illustration of SpineFM pipeline](./media/pipeline_new.png)
 
 https://arxiv.org/abs/2411.00326
 
