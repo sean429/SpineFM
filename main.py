@@ -71,9 +71,6 @@ def main():
                 masks_dict[ids[i]] = outputs[i]['masks'].cpu()
                 scores_dict[ids[i]] = outputs[i]['scores'].cpu()
             
-            if len(masks_dict) > 5:
-                break
-            
         del Mask_RCNN
 
         # ------------------------------------------- INTIAL MSA PROMPT GENERATION -------------------------------------------
@@ -130,8 +127,14 @@ def main():
         MSA = get_model('Medical-SAM-Adaptor',device,weights_path)
         MSA.eval()
 
+        # Load a ResNet based model used for classifying new vertebra predictions (between background, regular vertebra, and 
+        # landmark vertebra)
+        Classifier = get_model('ResNet_Classifier',device,weights_path,num_classes=num_classes)
+        Classifier.eval()
+
         refined_points = {}
         masks = {}
+        landmark_centroids = {id:(0,0) for id in top_three_dict.keys()}
 
         # Predict the first three vertebrae masks from the output prompts of the previous step
         for id,points in top_three_dict.items():
@@ -143,6 +146,20 @@ def main():
             
                 pred = MSA_predict(MSA,img,point,patch_size=MSA_patch_size)
                 output_masks.append(pred)
+                p = compute_weighted_centroid(np.array(torch.sigmoid(pred).squeeze(0)))
+
+                ## labelling only works for NHANESII for now
+                if num_classes > 2:
+                    label = classify(Classifier,img,p,patch_size=Classifier_patch_size)
+
+                    # record the centroid of the S1 vertebra
+                    if label == 3:
+                        landmark_centroids[id] = p
+                    
+                    # record the centroid of the C2 vertebra
+                    elif label == 2:
+                        landmark_centroids[id] = p
+
             
             # Recalculate vertebrae centroids from MSA generated masks
             refined_points[id] = [compute_weighted_centroid(np.array(torch.sigmoid(mask).squeeze(0))) for mask in output_masks] 
@@ -159,11 +176,6 @@ def main():
         # Load a simple fully connected NN which predicts the location of the centroid of the next vertebra
         PointPredictor = get_model('Point_Predictor',device,weights_path)
 
-        # Load a ResNet based model used for classifying new vertebra predictions (between background, regular vertebra, and 
-        # landmark vertebra)
-        Classifier = get_model('ResNet_Classifier',device,weights_path,num_classes=num_classes)
-        Classifier.eval()
-
         os.makedirs(os.path.join(data_path,output_directory),exist_ok=True)
         os.makedirs(os.path.join(data_path,output_directory,'extras'),exist_ok=True)
         os.makedirs(os.path.join(data_path,output_directory,'masks'),exist_ok=True)
@@ -177,7 +189,6 @@ def main():
             img = Image.open(os.path.join(data_path,'imgs',id+'.jpg')).convert('RGB')
             w,h = img.size
 
-            landmark_centroid = (0,0)
             new_points = []
             new_points_refined = []
             extras = {}
@@ -223,14 +234,14 @@ def main():
                     # S1: Stop loop and save mask
                     elif label == 3:
                         new_points_refined.append(new_point_refined)
-                        landmark_centroid = new_point_refined
+                        landmark_centroids[id] = new_point_refined
                         masks[id].append(new_mask)
                         break
                     
                     # C2: Stop loop and save mask
                     elif label == 2:
                         new_points_refined.append(new_point_refined)
-                        landmark_centroid = new_point_refined
+                        landmark_centroids[id] = new_point_refined
                         masks[id].append(new_mask)
                         break
                     
@@ -242,8 +253,9 @@ def main():
                         # Replace the furthest point with the new vertebra's centroid
                         points = points[1:]+[new_point_refined]
             
-            # Post process by thresholding the masks then gaussian smoothing (mainly helpful for NHANES, not as important for CSXA)
-            masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
+            # Post process by thresholding the masks then gaussian smoothing (only helpful for NHANES II)
+            if dataset == 'NHANESII':
+                masks[id] = np.array([gaussian_smooth(binary_mask_from_logits(mask,0.9)) for mask in masks[id]])
 
             # Save the masks
             np.savez_compressed(os.path.join(data_path,output_directory,'masks',id+'.npz'),masks=masks[id])
@@ -252,7 +264,7 @@ def main():
             with open(os.path.join(data_path,output_directory,'extras',id+'.pkl'),'wb') as f:
 
                 # Save extra data which could be useful
-                extras['landmark_centroid'] = landmark_centroid
+                extras['landmark_centroid'] = landmark_centroids[id]
                 extras['rough_points'] = new_points
                 extras['refined_points'] = new_points_refined
                 extras['starting_points'] = top_three_dict[id]

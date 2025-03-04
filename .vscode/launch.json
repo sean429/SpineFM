@@ -8,7 +8,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "please", "../weights/", "300", "CSXA", "../data/CSXA"
+                "please", "../weights/", "CSXA", "../data/CSXA"
             ]
         }
     ]
